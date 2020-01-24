@@ -59,11 +59,13 @@
   <ItemGroup>
     <Compile Include="Model\ConfigurationParameters.cs" />
     <Compile Include="Model\LogLevel.cs" />
+    <Compile Include="Model\Operation.cs" />
     <Compile Include="Model\SonarQube\ApiComponentsTreeResult.cs" />
     <Compile Include="Model\SonarQube\ApiIssuesSearchResult.cs" />
     <Compile Include="Model\SonarQube\Comment.cs" />
     <Compile Include="Model\SonarQube\Component.cs" />
     <Compile Include="Model\SonarQube\Issue.cs" />
+    <Compile Include="Model\SonarQube\IssueFilter.cs" />
     <Compile Include="Model\SonarQube\Paging.cs" />
     <Compile Include="Model\SonarQube\TextRange.cs" />
     <Compile Include="Program.cs" />

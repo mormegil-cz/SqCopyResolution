@@ -24,16 +24,15 @@ namespace SqCopyResolution.Services
             Password = password;
         }
 
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1002:DoNotExposeGenericLists", Justification = "I need to call Find method on the returned List, so I cannot use IList here.")]
-        public List<Issue> GetIssuesForProject(string projectKey, string branchName, bool onlyFalsePositivesAndWontFixes)
+        public IList<Issue> GetIssuesForProject(string projectKey, IssueFilter filter)
         {
             var result = new List<Issue>();
 
-            Logger.LogDebug("Getting list of issues for project {0} (branch {1})", projectKey, branchName);
+            Logger.LogDebug("Getting list of issues for project {0} (branch {1})", projectKey, filter.Branch);
 
             // SonarQube cannot return more than 10000 issues in one response.
             // Let's try to find out, what the number of issues is
-            var numberOfIssues = GetNumberOfIssuesForProject(projectKey, branchName, onlyFalsePositivesAndWontFixes);
+            var numberOfIssues = GetNumberOfIssuesForProject(projectKey, filter);
 
             if (numberOfIssues > 0)
             {
@@ -44,13 +43,12 @@ namespace SqCopyResolution.Services
                     do
                     {
                         var uri = new Uri(string.Format(CultureInfo.InvariantCulture,
-                            "{0}/api/issues/search?projectKeys={1}&additionalFields=comments&p={2}&ps={3}{4}{5}",
+                            "{0}/api/issues/search?projectKeys={1}&additionalFields=comments&p={2}&ps={3}{4}",
                             SonarQubeUrl,
                             projectKey,
                             pageIndex,
                             pageSize,
-                            onlyFalsePositivesAndWontFixes ? "&resolutions=FALSE-POSITIVE,WONTFIX" : string.Empty,
-                            !string.IsNullOrEmpty(branchName) ? "&branch=" + branchName : string.Empty));
+                            filter.ToQueryString()));
 
                         var responseContent = GetFromServer(uri);
                         if (!string.IsNullOrEmpty(responseContent))
@@ -73,12 +71,12 @@ namespace SqCopyResolution.Services
                 else
                 {
                     // If the number of issues is too high, we need to get their list by components
-                    var components = GetProjectComponents(projectKey, branchName);
+                    var components = GetProjectComponents(projectKey, filter.Branch);
                     if (components != null)
                     {
                         foreach (var component in components)
                         {
-                            result.AddRange(GetIssuesForComponent(component, branchName, onlyFalsePositivesAndWontFixes));
+                            result.AddRange(GetIssuesForComponent(component, filter));
                         }
                     }
                 }
@@ -89,16 +87,15 @@ namespace SqCopyResolution.Services
             return result;
         }
 
-        private int GetNumberOfIssuesForProject(string projectKey, string branchName, bool onlyFalsePositivesAndWontFixes)
+        private int GetNumberOfIssuesForProject(string projectKey, IssueFilter filter)
         {
-            Logger.LogDebug("Getting number of issues for project {0} (branch '{1}')", projectKey, branchName);
+            Logger.LogDebug("Getting number of issues for project {0} (branch '{1}')", projectKey, filter.Branch);
 
             var uri = new Uri(string.Format(CultureInfo.InvariantCulture,
-                "{0}/api/issues/search?projectKeys={1}&p=1&ps=1{2}{3}",
+                "{0}/api/issues/search?projectKeys={1}&p=1&ps=1{2}",
                 SonarQubeUrl,
                 projectKey,
-                onlyFalsePositivesAndWontFixes ? "&resolutions=FALSE-POSITIVE,WONTFIX" : string.Empty,
-                !string.IsNullOrEmpty(branchName) ? "&branch=" + branchName : string.Empty));
+                filter.ToQueryString()));
 
             var responseContent = GetFromServer(uri);
             if (!string.IsNullOrEmpty(responseContent))
@@ -110,9 +107,9 @@ namespace SqCopyResolution.Services
             return -1;
         }
 
-        private IList<Issue> GetIssuesForComponent(Component component, string branchName, bool onlyFalsePositivesAndWontFixes)
+        private IList<Issue> GetIssuesForComponent(Component component, IssueFilter filter)
         {
-            Logger.LogDebug("Getting list of issues for component {0} (branch {1})", component.Key, branchName);
+            Logger.LogDebug("Getting list of issues for component {0} (branch {1})", component.Key, filter.Branch);
 
             var result = new List<Issue>();
 
@@ -121,13 +118,12 @@ namespace SqCopyResolution.Services
             do
             {
                 var uri = new Uri(string.Format(CultureInfo.InvariantCulture,
-                    "{0}/api/issues/search?componentKeys={1}&p={2}&ps={3}{4}{5}",
+                    "{0}/api/issues/search?componentKeys={1}&p={2}&ps={3}{4}",
                     SonarQubeUrl,
                     component.Key,
                     pageIndex,
                     pageSize,
-                    onlyFalsePositivesAndWontFixes ? "&resolutions=FALSE-POSITIVE,WONTFIX" : string.Empty,
-                    !string.IsNullOrEmpty(branchName) ? "&branch=" + branchName : string.Empty));
+                    filter.ToQueryString()));
 
                 var responseContent = GetFromServer(uri);
                 if (!string.IsNullOrEmpty(responseContent))
@@ -154,7 +150,10 @@ namespace SqCopyResolution.Services
 
         public void UpdateIssueResolution(string issueKey, string newResolution, Comment[] comments, string noteToAdd)
         {
-            if (newResolution == null) { throw new ArgumentNullException("newResolution"); }
+            if (newResolution == null)
+            {
+                throw new ArgumentNullException(nameof(newResolution));
+            }
 
             Logger.LogDebug("Updating resolution for issue {0} to {1}", issueKey, newResolution);
 
@@ -175,10 +174,11 @@ namespace SqCopyResolution.Services
             var uri = new Uri(string.Format(CultureInfo.InvariantCulture,
                 "{0}/api/issues/do_transition",
                 SonarQubeUrl));
-            PostToServer(uri, new[] {
-                        new KeyValuePair<string, string>("issue", issueKey),
-                        new KeyValuePair<string, string>("transition", transition)
-                    });
+            PostToServer(uri, new[]
+            {
+                new KeyValuePair<string, string>("issue", issueKey),
+                new KeyValuePair<string, string>("transition", transition)
+            });
 
             if (comments != null)
             {
@@ -191,6 +191,25 @@ namespace SqCopyResolution.Services
             {
                 PostComment(issueKey, noteToAdd);
             }
+        }
+
+        public void AssignIssue(string issueKey, string assignee)
+        {
+            if (assignee == null)
+            {
+                throw new ArgumentNullException(nameof(assignee));
+            }
+
+            Logger.LogDebug("Assigning issue {0} to {1}", issueKey, assignee);
+
+            var uri = new Uri(string.Format(CultureInfo.InvariantCulture,
+                "{0}/api/issues/assign",
+                SonarQubeUrl));
+            PostToServer(uri, new[]
+            {
+                new KeyValuePair<string, string>("issue", issueKey),
+                new KeyValuePair<string, string>("assignee", assignee)
+            });
         }
 
         private void PostComment(string issueKey, string commentHtmlText)
@@ -216,12 +235,12 @@ namespace SqCopyResolution.Services
             do
             {
                 var uri = new Uri(string.Format(CultureInfo.InvariantCulture,
-                "{0}/api/components/tree?baseComponentKey={1}&qualifiers=DIR&p={2}&ps={3}{4}",
-                SonarQubeUrl,
-                projectKey,
-                pageIndex,
-                pageSize,
-                !string.IsNullOrEmpty(branchName) ? "&branch=" + branchName : string.Empty));
+                    "{0}/api/components/tree?baseComponentKey={1}&qualifiers=DIR&p={2}&ps={3}{4}",
+                    SonarQubeUrl,
+                    projectKey,
+                    pageIndex,
+                    pageSize,
+                    !string.IsNullOrEmpty(branchName) ? "&branch=" + branchName : string.Empty));
 
                 var responseContent = GetFromServer(uri);
                 if (!string.IsNullOrEmpty(responseContent))
@@ -297,7 +316,6 @@ namespace SqCopyResolution.Services
                                 response.StatusCode,
                                 responseContent);
                         }
-
                     }
                 }
             }

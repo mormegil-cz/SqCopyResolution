@@ -8,6 +8,7 @@ namespace SqCopyResolution.Model.SonarQube
         public string Rule { get; set; }
         public string Component { get; set; }
         public string Project { get; set; }
+        public string Author { get; set; }
         public string Resolution { get; set; }
         public string Message { get; set; }
         public TextRange TextRange { get; set; }
